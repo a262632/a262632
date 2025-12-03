@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TripVibe 東京河口湖八日行程規劃</title>
+    
+    <!-- PWA Setup: Link to the Manifest file (This is sufficient for "Install App" prompt) -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- PWA Theme Color -->
+    <meta name="theme-color" content="#FFFBEB">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for a Hand-Drawn Vibe -->
+    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <style>
+        /* Custom Styles for Illustration/Pale Yellow Vibe */
+        :root {
+            --primary-color: #6B462C; /* Dark Brown/Cocoa */
+            --light-bg: #FFFBEB; /* Pale Yellow/Cream Background */
+            --day-active: #FFC300; /* Muted Gold/Yellow Accent */
+            --day-inactive: #A3A3A3; /* Gray */
+            --header-bg: #A68F3E; /* Muted brown-gold for the cost bar */
+        }
+
+        body {
+            font-family: 'Noto Sans TC', 'Comfortaa', sans-serif;
+            background-color: var(--light-bg);
+            min-height: 100vh;
+        }
+
+        .sketchy-card {
+            background-color: #fefcf3; 
+            border: 2px solid var(--primary-color);
+            border-radius: 12px;
+            box-shadow: 6px 6px 0px 0px #A68F3E; 
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .sketchy-card:hover {
+            box-shadow: 4px 4px 0px 0px #D4AC0D; 
+            transform: translate(-2px, -2px);
+        }
+
+        .modal-content {
+            background-color: #fff;
+            border-radius: 16px;
+            border: 3px dashed #D4AC0D; 
+            padding: 30px;
+            max-width: 90%;
+            width: 500px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        .cost-modal-content {
+            width: 650px;
+        }
+
+        .day-tab {
+            font-family: 'Comfortaa', cursive;
+            font-weight: 700;
+            padding: 10px 15px;
+            border-bottom: 4px solid transparent;
+            color: var(--day-inactive);
+            transition: all 0.3s;
+            cursor: pointer;
+            flex-shrink: 0;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .day-tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--day-active);
+            background-color: #fef9c3; 
+            border-radius: 6px 6px 0 0;
+            box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .day-tab:hover:not(.active) {
+            color: #4b5563;
+        }
+
+        .transport-select {
+            background-color: #fff;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 16px;
+        }
+        
+        /* Style for clickable attraction name */
+        .attraction-link {
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        /* Style for the Uber/Taxi button */
+        .open-uber-btn {
+            box-shadow: 0 4px 0 0 #374151; /* Dark shadow for depth */
+            transform: translateY(-2px);
+            transition: all 0.1s ease;
+        }
+        .open-uber-btn:active {
+            box-shadow: 0 2px 0 0 #374151;
+            transform: translateY(0);
+        }
+    </style>
+    
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+        const API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=';
+
+        let app, db, auth, userId;
+        let currentEditingId = null; 
+        let currentCostEditingId = null; 
+
+        const state = {
+            currentDay: 1,
+            itinerary: [], 
+            jpyToTwdRate: 0.22, 
+            currentCurrency: 'JPY' 
+        };
+        
+        // 初始行程資料 (根據使用者提供的 8 天行程表更新，並將 Day 1 的一個項目改為 'car' 示範)
+        const INITIAL_ITINERARY_DATA = [
+            // Day 1: 12/13 (五) - 抵達新宿
+            { day: 1, time: "19:20", attraction: "抵達成田機場 (NRT)", transport: "", departure: "", arrival: "", note: "住宿： 新宿地區飯店" },
+            // 將此項改為 'car' 交通，用於示範「叫車」按鈕功能
+            { day: 1, time: "20:30", attraction: "機場入境、搭乘計程車/Uber", transport: "car", departure: "成田機場 NRT T2", arrival: "新宿地區飯店", note: "如果行李多可選擇計程車或 App 叫車" }, 
+            { day: 1, time: "22:30", attraction: "抵達新宿，Check-in", transport: "", departure: "", arrival: "", note: "" },
+            
+            // Day 2: 12/14 (六) - 前往河口湖
+            { day: 2, time: "08:30", attraction: "前往新宿高速巴士總站", transport: "walk", departure: "飯店", arrival: "新宿高速巴士總站", note: "" },
+            { day: 2, time: "09:00", attraction: "搭乘高速巴士前往河口湖", transport: "bus", departure: "新宿高速巴士總站", arrival: "河口湖站", note: "需事先訂票！" },
+            { day: 2, time: "11:20", attraction: "抵達河口湖站、午餐 (餺飥)", transport: "", departure: "", arrival: "", note: "午餐： 河口湖站周邊" },
+            { day: 2, time: "13:00", attraction: "新倉富士淺間神社 (忠靈塔)", transport: "mrt", departure: "河口湖站", arrival: "下吉田站", note: "富士急行線，建議購買富士五湖周遊券" },
+            { day: 2, time: "16:30", attraction: "下山，前往住宿地", transport: "mrt", departure: "下吉田站", arrival: "The Noborisaka Village", note: "住宿： The Noborisaka Village" },
+
+            // Day 3: 12/15 (日) - 忍野八海與山中湖
+            { day: 3, time: "09:00", attraction: "忍野八海", transport: "bus", departure: "富士山站", arrival: "忍野八海入口", note: "使用富士五湖周遊券" },
+            { day: 3, time: "12:00", attraction: "忍野八海午餐與遊覽", transport: "", departure: "", arrival: "", note: "" },
+            { day: 3, time: "14:00", attraction: "山中湖", transport: "bus", departure: "忍野八海入口", arrival: "山中湖周邊", note: "" },
+            { day: 3, time: "17:00", attraction: "返回住宿地", transport: "bus", departure: "山中湖", arrival: "富士山站", note: "住宿： The Noborisaka Village" },
+
+            // Day 4: 12/16 (一) - 河口湖周邊景點
+            { day: 4, time: "09:00", attraction: "西湖療癒之里根場", transport: "bus", departure: "富士山站", arrival: "西湖療癒之里根場", note: "推薦一早前往" },
+            { day: 4, time: "11:30", attraction: "大石公園 (河口湖自然生活館)", transport: "bus", departure: "西湖療癒之里根場", arrival: "大石公園", note: "" },
+            { day: 4, time: "13:00", attraction: "午餐", transport: "", departure: "", arrival: "", note: "紅線沿線餐廳" },
+            { day: 4, time: "15:00", attraction: "音樂盒之森美術館", transport: "bus", departure: "大石公園", arrival: "音樂盒之森美術館", note: "" },
+            { day: 4, time: "17:00", attraction: "河口湖香草館", transport: "bus", departure: "音樂盒之森美術館", arrival: "河口湖香草館", note: "" },
+            { day: 4, time: "18:30", attraction: "返回住宿地", transport: "mrt", departure: "河口湖香草館", arrival: "富士山站", note: "住宿： The Noborisaka Village" },
+
+            // Day 5: 12/17 (二) - 返回東京/六本木
+            { day: 5, time: "11:00", attraction: "退房、前往河口湖站", transport: "mrt", departure: "富士山站", arrival: "河口湖站", note: "" },
+            { day: 5, time: "12:00", attraction: "河口湖站午餐", transport: "", departure: "", arrival: "", note: "" },
+            { day: 5, time: "13:00", attraction: "搭乘高速巴士前往東京新宿", transport: "bus", departure: "河口湖站", arrival: "新宿高速巴士總站", note: "需事先訂票！" },
+            { day: 5, time: "15:00", attraction: "抵達新宿，Check-in", transport: "walk", departure: "新宿高速巴士總站", arrival: "東橫INN (新宿)", note: "住宿： 東橫INN (新宿)" },
+            { day: 5, time: "17:00", attraction: "六本木", transport: "mrt", departure: "新宿站", arrival: "六本木站", note: "欣賞夜景與東京鐵塔" },
+            { day: 5, time: "20:30", attraction: "六本木晚餐/夜景", transport: "", departure: "", arrival: "", note: "" },
+
+            // Day 6: 12/18 (三) - 明治神宮與橫濱
+            { day: 6, time: "09:00", attraction: "明治神宮", transport: "mrt", departure: "新宿站", arrival: "原宿站", note: "" },
+            { day: 6, time: "11:00", attraction: "橫濱", transport: "mrt", departure: "新宿站", arrival: "櫻木町站", note: "" },
+            { day: 6, time: "12:00", attraction: "橫濱午餐 (港未來區/中華街)", transport: "", departure: "", arrival: "", note: "" },
+            { day: 6, time: "14:00", attraction: "橫濱紅磚倉庫", transport: "mrt", departure: "櫻木町站", arrival: "馬車道站", note: "" },
+            { day: 6, time: "17:00", attraction: "橫濱港未來區", transport: "walk", departure: "橫濱紅磚倉庫", arrival: "港未來區", note: "" },
+            { day: 6, time: "20:00", attraction: "返回新宿", transport: "mrt", departure: "橫濱站", arrival: "新宿站", note: "住宿： 東橫INN (新宿)" },
+
+            // Day 7: 12/19 (四) - 澀谷/原宿/新宿
+            { day: 7, time: "10:00", attraction: "澀谷", transport: "mrt", departure: "新宿站", arrival: "澀谷站", note: "澀谷交叉口、Scramble Square" },
+            { day: 7, time: "13:00", attraction: "澀谷午餐", transport: "", departure: "", arrival: "", note: "" },
+            { day: 7, time: "15:00", attraction: "原宿竹下通/表參道", transport: "mrt", departure: "澀谷站", arrival: "原宿站", note: "" },
+            { day: 7, time: "17:00", attraction: "新宿逛街", transport: "mrt", departure: "原宿站", arrival: "新宿站", note: "進行最後採買" },
+            { day: 7, time: "20:00", attraction: "新宿晚餐", transport: "", departure: "", arrival: "", note: "住宿： 東橫INN (新宿)" },
+
+            // Day 8: 12/20 (五) - 賦歸
+            { day: 8, time: "08:30", attraction: "早餐、整理行李、退房", transport: "", departure: "", arrival: "", note: "" },
+            { day: 8, time: "09:00", attraction: "前往成田機場", transport: "mrt", departure: "新宿", arrival: "成田機場 (NRT)", note: "預留充足交通時間" },
+            { day: 8, time: "10:00", attraction: "抵達成田機場", transport: "", departure: "", arrival: "", note: "" },
+            { day: 8, time: "12:00", attraction: "飛機起飛", transport: "", departure: "", arrival: "", note: "圓滿結束旅程" }
+        ];
+
+        const TRANSPORT_OPTIONS = [
+            { value: "", label: "選擇交通工具 (選填)" },
+            { value: "bus", label: "🚌 公車/客運" },
+            { value: "mrt", label: "🚇 捷運/地鐵" },
+            { value: "car", label: "🚗 汽車/計程車" }, // 這是用戶想連結 Uber 的選項
+            { value: "walk", label: "🚶 步行" },
+            { value: "bike", label: "🚲 自行車" }
+        ];
+
+        // --- Currency & API Functions ---
+
+        async function fetchExchangeRateWithRetry(maxRetries = 5) {
+            const userQuery = "最新的日圓(JPY)兌換台幣(TWD)匯率是多少？請只提供數字。";
+            const systemPrompt = "您是一個專業的金融助理。請僅輸出當前日圓兌換台幣的數字匯率，不要包含貨幣符號、文字、解釋或其他任何內容。如果無法找到數字，請輸出 '0.22'。";
+            const apiKey = ""; 
+            const apiUrl = `${API_URL_BASE}${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 429 && attempt < maxRetries - 1) {
+                            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                        throw new Error(`API request failed with status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '0.22';
+                    
+                    const rateMatch = text.match(/[\d\.]+/);
+                    const rate = rateMatch ? parseFloat(rateMatch[0]) : 0.22;
+                    
+                    if (rate > 0.001 && rate < 1) { 
+                        return rate;
+                    } else {
+                        return 0.22; 
+                    }
+
+                } catch (error) {
+                    if (attempt < maxRetries - 1) {
+                        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        return 0.22; 
+                    }
+                }
+            }
+            return 0.22;
+        }
+
+
+        // --- Utility Functions ---
+
+        function mapFirestoreData(doc) {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                day: data.day || 1,
+                attraction: data.attraction || '',
+                time: data.time || '',
+                transport: data.transport || '',
+                departure: data.departure || '', 
+                arrival: data.arrival || '',     
+                note: data.note || '',
+                costs: data.costs || [] 
+            };
+        }
+
+        // Returns options HTML string
+        function renderTransportOptions(selectedValue = "") {
+            return TRANSPORT_OPTIONS.map(opt => `
+                <option value="${opt.value}" ${opt.value === selectedValue ? 'selected' : ''}>${opt.label}</option>
+            `).join('');
+        }
+        
+        function getVibeColor(day) {
+            const colors = ['#D4AC0D', '#AEC6CF', '#E0BBE4', '#A0D2BB', '#CC8C83', '#6A9D9E', '#E4D6A7', '#D38A9E']; // 增加顏色以覆蓋 8 天
+            return colors[(day - 1) % colors.length];
+        }
+        
+        // --- Navigation and External Links ---
+        
+        // 點擊景點名稱開啟 Google 地圖
+        function openGoogleMaps(location) {
+            if (location) {
+                // Construct a safe Google Maps URL for searching the location
+                const searchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+                window.open(searchUrl, '_blank');
+            } else {
+                showMessage('景點名稱或地址為空，無法開啟 Google 地圖。');
+            }
+        }
+        
+        // 點擊叫車按鈕，嘗試開啟 Uber App 並預填出發地和目的地
+        function openUberLink(departure, arrival) {
+            if (departure && arrival) {
+                // Construct the Uber deep link using formatted addresses.
+                // This URL attempts to open the Uber app (if installed) or redirect to the mobile web.
+                const uberLink = `uber://?action=setPickup&pickup[formatted_address]=${encodeURIComponent(departure)}&dropoff[formatted_address]=${encodeURIComponent(arrival)}`;
+                
+                // Open the link in a new tab.
+                window.open(uberLink, '_blank');
+
+                // Provide a message to the user that we are attempting to open the external app/site
+                showMessage('嘗試開啟 Uber App 或網頁中。如果無法自動跳轉，請檢查您的裝置是否安裝 Uber App。');
+            } else {
+                showMessage('請填寫出發位置和抵達位置，才能查詢叫車服務！');
+            }
+        }
+
+
+        // --- Cost Calculation & Rendering ---
+        
+        function calculateTotalCost() {
+            let totalJPY = 0;
+            state.itinerary.forEach(item => {
+                const costs = Array.isArray(item.costs) ? item.costs : [];
+                costs.forEach(cost => {
+                    totalJPY += (cost.amount || 0);
+                });
+            });
+            return totalJPY;
+        }
+
+        function renderTotalCost() {
+            const totalJPY = calculateTotalCost();
+            const rate = state.jpyToTwdRate;
+            
+            const totalTWD = totalJPY * rate;
+            const isJPY = state.currentCurrency === 'JPY';
+            let displayAmountRaw = isJPY ? totalJPY : totalTWD;
+            const displayAmountRounded = Math.ceil(displayAmountRaw);
+            
+            const currencySymbol = isJPY ? '¥' : 'NT$';
+            const currencyCode = isJPY ? 'JPY' : 'TWD';
+            
+            const costContainer = document.getElementById('total-cost-display-amount');
+            if (!costContainer) return;
+
+            costContainer.innerHTML = `
+                <span class="text-3xl font-extrabold text-white">
+                    ${currencySymbol}${displayAmountRounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </span>
+                <span class="text-xs font-medium text-gray-200 ml-2">${currencyCode}</span>
+            `;
+
+            document.getElementById('currency-toggle-btn').textContent = `切換至 ${isJPY ? 'NT$' : '¥'}`;
+            document.getElementById('rate-display').textContent = `1 ¥ ≈ ${rate.toFixed(3)} NT$`;
+        }
+        
+        function toggleCurrency() {
+            state.currentCurrency = state.currentCurrency === 'JPY' ? 'TWD' : 'JPY';
+            renderTotalCost();
+        }
+
+
+        // --- Rendering Functions (Tabs & Itinerary) ---
+
+        function renderTabs(maxDay) {
+            const tabsContainer = document.getElementById('day-tabs');
+            if (!tabsContainer) return;
+
+            tabsContainer.innerHTML = '';
+            // 只渲染 Day 1 到 maxDay 的標籤
+            for (let i = 1; i <= maxDay; i++) {
+                const tab = document.createElement('div');
+                tab.className = `day-tab text-xl sm:text-2xl whitespace-nowrap ${i === state.currentDay ? 'active' : ''}`;
+                tab.textContent = `Day ${i}`;
+                tab.dataset.day = i;
+                tab.onclick = handleDayChange;
+                
+                tabsContainer.appendChild(tab);
+            }
+        }
+
+        function renderItinerary() {
+            const listContainer = document.getElementById('itinerary-list');
+            if (!listContainer) return;
+
+            const currentDayItems = state.itinerary
+                .filter(item => item.day === state.currentDay)
+                .sort((a, b) => {
+                    const timeA = a.time || '99:99';
+                    const timeB = b.time || '99:99';
+                    return timeA.localeCompare(timeB);
+                });
+
+            listContainer.innerHTML = '';
+
+            if (currentDayItems.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="p-8 text-center text-gray-500 text-lg">
+                        <i class="fa-solid fa-cloud-moon text-4xl mb-4 text-amber-700"></i>
+                        <p>這一天還沒有行程喔！點擊右下角的 + 新增一個景點吧。</p>
+                        ${state.itinerary.length === 0 ? `<p class="mt-2 text-sm">首次使用，您可以新增 Day 1 的行程。</p>` : ''}
+                    </div>
+                `;
+                return;
+            }
+
+            currentDayItems.forEach(item => {
+                const transport = TRANSPORT_OPTIONS.find(opt => opt.value === item.transport) || TRANSPORT_OPTIONS[0];
+                const itemTotalCost = (Array.isArray(item.costs) ? item.costs : []).reduce((sum, cost) => sum + (cost.amount || 0), 0);
+
+                const card = document.createElement('div');
+                card.id = `item-${item.id}`;
+                card.className = 'sketchy-card p-4 sm:p-6 mb-4 flex flex-col space-y-3'; 
+                
+                // --- Itinerary Item Card HTML ---
+                card.innerHTML = `
+                    <div class="flex items-start space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-lg font-bold" 
+                             style="background-color: ${getVibeColor(item.day)};">
+                            ${item.time ? '<i class="fa-regular fa-clock"></i>' : '<i class="fa-solid fa-map-marker-alt"></i>'}
+                        </div>
+                        <div class="flex-grow">
+                            <div class="flex justify-between items-start mb-2">
+                                <!-- Clickable Attraction Name: Feature 1 -->
+                                <button class="text-left text-xl sm:text-2xl font-bold text-gray-800 hover:text-amber-700 transition-colors attraction-link" 
+                                        data-location="${item.attraction}">
+                                    ${item.attraction}
+                                </button>
+                                
+                                <div class="text-sm text-gray-500 flex space-x-2 flex-shrink-0">
+                                    <button class="text-gray-700 hover:text-gray-900 edit-btn" data-id="${item.id}" style="color: var(--primary-color);">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                    </button>
+                                    <button class="text-red-600 hover:text-red-800 delete-btn" data-id="${item.id}">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Transport Details: Feature 2 Display -->
+                            <div class="flex flex-col text-sm sm:text-base text-gray-600 space-y-2 mt-2">
+                                ${item.time ? `<span class="flex items-center"><i class="fa-regular fa-clock mr-2 text-amber-700"></i> ${item.time}</span>` : ''}
+                                
+                                ${transport.value ? `
+                                    <span class="flex items-center font-semibold"><i class="fa-solid fa-route mr-2 text-green-600"></i> ${transport.label.split(' ')[0]}</span>
+                                    ${item.departure ? `<span class="ml-6 text-xs italic text-gray-500">從: ${item.departure}</span>` : ''}
+                                    ${item.arrival ? `<span class="ml-6 text-xs italic text-gray-500">到: ${item.arrival}</span>` : ''}
+                                ` : ''}
+                            </div>
+                            
+                            <!-- Uber/Car Action Button (Links to Uber Deep Link) -->
+                            <!-- 只有當交通工具為 'car' (汽車/計程車) 時才顯示叫車按鈕 -->
+                            ${item.transport === 'car' ? `
+                                <button class="mt-3 px-3 py-1 text-sm rounded-full text-white bg-black hover:bg-gray-800 transition-colors open-uber-btn"
+                                        data-departure="${item.departure || ''}"
+                                        data-arrival="${item.arrival || ''}">
+                                    <i class="fa-brands fa-uber mr-1"></i> 叫車 (Uber/Taxi)
+                                </button>
+                            ` : ''}
+
+                            ${item.note ? `<p class="mt-3 text-sm italic text-gray-700 p-2 bg-gray-100 rounded border-l-4 border-amber-400">${item.note}</p>` : ''}
+                        </div>
+                    </div>
+                    
+                    <!-- Cost Display and Button -->
+                    <div class="flex justify-between items-center pt-3 border-t border-dashed border-amber-300">
+                        <span class="text-sm font-semibold text-gray-700">
+                            總花費: 
+                            <span class="text-xl font-bold ${itemTotalCost > 0 ? 'text-green-700' : 'text-gray-500'}">
+                                ¥${itemTotalCost.toLocaleString()}
+                            </span>
+                        </span>
+                        <button class="text-sm px-3 py-1 rounded-full text-white add-cost-btn transition-transform hover:scale-[1.02]" 
+                                data-id="${item.id}"
+                                style="background-color: var(--header-bg);">
+                            <i class="fa-solid fa-coins mr-1"></i> 明細
+                        </button>
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            });
+
+            // Reattach event listeners after rendering
+            document.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.onclick = () => showEditModal(btn.dataset.id);
+            });
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.onclick = () => showDeleteModal(btn.dataset.id);
+            });
+            document.querySelectorAll('.add-cost-btn').forEach(btn => {
+                btn.onclick = () => showCostModal(btn.dataset.id);
+            });
+            
+            // Google Maps link listener (Feature 1)
+            document.querySelectorAll('.attraction-link').forEach(btn => {
+                btn.onclick = () => openGoogleMaps(btn.dataset.location);
+            });
+            // Uber link listener (Feature 2 - Car Action)
+            document.querySelectorAll('.open-uber-btn').forEach(btn => {
+                btn.onclick = () => openUberLink(btn.dataset.departure, btn.dataset.arrival);
+            });
+
+            renderTotalCost();
+        }
+
+
+        // --- Event Handlers (Day Tabs) ---
+
+        function handleDayChange(event) {
+            const newDay = parseInt(event.currentTarget.dataset.day);
+            if (newDay !== state.currentDay) {
+                state.currentDay = newDay;
+                const maxDay = Math.max(1, ...state.itinerary.map(item => item.day));
+                renderTabs(maxDay);
+                renderItinerary();
+            }
+        }
+
+        // --- Item Modal & Form Functions (CRUD for Itinerary Items) ---
+
+        const modal = document.getElementById('item-modal');
+        const attractionInput = document.getElementById('modal-attraction');
+        const timeInput = document.getElementById('modal-time');
+        const transportSelect = document.getElementById('modal-transport-select'); // Updated ID
+        const noteTextarea = document.getElementById('modal-note');
+        const departureInput = document.getElementById('modal-departure'); // NEW: 出發位置
+        const arrivalInput = document.getElementById('modal-arrival');     // NEW: 抵達位置
+        const transportDetailsContainer = document.getElementById('transport-details-container'); // NEW: 交通細節容器
+        const saveButton = document.getElementById('modal-save-btn');
+        const formTitle = document.getElementById('modal-title');
+        
+        function showMessage(text) {
+            document.getElementById('custom-message-text').textContent = text;
+            document.getElementById('custom-message-box').classList.remove('hidden');
+            setTimeout(() => {
+                 document.getElementById('custom-message-box').classList.add('hidden');
+            }, 3000);
+        }
+
+        // Function to control visibility of departure/arrival fields (Feature 2)
+        function toggleTransportDetails(transportValue) {
+            // 只要不是 'walk' 或空值，就顯示細節欄位
+            if (transportValue && transportValue !== 'walk' && transportValue !== '') {
+                transportDetailsContainer.classList.remove('hidden');
+            } else {
+                transportDetailsContainer.classList.add('hidden');
+                // 清空輸入，避免儲存不相關的資料
+                departureInput.value = '';
+                arrivalInput.value = '';
+            }
+        }
+
+        function showAddModal() {
+            currentEditingId = null;
+            
+            const maxDay = Math.max(1, ...state.itinerary.map(item => item.day));
+            const dayForNewItem = state.itinerary.filter(item => item.day === state.currentDay).length > 0 ? state.currentDay : maxDay;
+
+            formTitle.textContent = '新增行程 (Day ' + dayForNewItem + ')';
+            attractionInput.value = '';
+            timeInput.value = '';
+            transportSelect.innerHTML = renderTransportOptions(""); // Populate dropdown options
+            noteTextarea.value = '';
+            departureInput.value = ''; // Clear new fields
+            arrivalInput.value = '';   // Clear new fields
+            
+            toggleTransportDetails(''); // Hide details initially
+            saveButton.textContent = '新增';
+            modal.classList.remove('hidden');
+        }
+
+        function showEditModal(id) {
+            const item = state.itinerary.find(i => i.id === id);
+            if (!item) return;
+
+            currentEditingId = id;
+            formTitle.textContent = '編輯行程 (Day ' + item.day + ')';
+            attractionInput.value = item.attraction;
+            timeInput.value = item.time;
+            transportSelect.innerHTML = renderTransportOptions(item.transport); // Populate dropdown options and set selected
+            noteTextarea.value = item.note;
+            departureInput.value = item.departure || ''; // Set value
+            arrivalInput.value = item.arrival || '';   // Set value
+            
+            toggleTransportDetails(item.transport); // Show/hide based on existing value
+            saveButton.textContent = '儲存變更';
+            modal.classList.remove('hidden');
+        }
+
+        function hideModal() {
+            modal.classList.add('hidden');
+        }
+
+        async function handleSaveItem(event) {
+            event.preventDefault();
+            
+            const attraction = attractionInput.value.trim();
+            const time = timeInput.value.trim();
+            const transport = transportSelect.value; 
+            const note = noteTextarea.value.trim();
+            const departure = departureInput.value.trim(); 
+            const arrival = arrivalInput.value.trim();     
+
+            if (!attraction) {
+                showMessage('景點名稱是必填的喔！');
+                return;
+            }
+
+            hideModal();
+            
+            let itemDay = state.currentDay; 
+            let costs = [];
+
+            if (currentEditingId) {
+                const existingItem = state.itinerary.find(i => i.id === currentEditingId);
+                if (existingItem) {
+                    itemDay = existingItem.day; 
+                    costs = existingItem.costs;
+                }
+            } else {
+                const maxDay = Math.max(1, ...state.itinerary.map(item => item.day));
+                if (state.itinerary.filter(item => item.day === state.currentDay).length === 0 && state.itinerary.length > 0) {
+                     itemDay = maxDay; 
+                } else if (state.itinerary.length === 0) {
+                     itemDay = 1;
+                } else {
+                     itemDay = state.currentDay;
+                }
+            }
+
+            // Conditional saving of departure/arrival
+            const isTransportSelected = transport && transport !== 'walk' && transport !== '';
+            
+            const itemData = {
+                day: itemDay, 
+                attraction,
+                time,
+                transport,
+                note,
+                costs: costs, 
+                // 只在選擇非步行交通時才儲存出發/抵達位置
+                departure: isTransportSelected ? departure : '', 
+                arrival: isTransportSelected ? arrival : '',     
+                updated_at: serverTimestamp()
+            };
+
+            try {
+                if (currentEditingId) {
+                    const itemRef = doc(db, `artifacts/${appId}/users/${userId}/itinerary_items`, currentEditingId);
+                    await updateDoc(itemRef, itemData);
+                } else {
+                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/itinerary_items`), {
+                        ...itemData,
+                        created_at: serverTimestamp()
+                    });
+                    if (itemDay !== state.currentDay) {
+                        state.currentDay = itemDay;
+                    }
+                }
+            } catch (error) {
+                console.error("Error saving item:", error);
+            }
+        }
+
+        function showDeleteModal(id) {
+            const deleteModal = document.getElementById('delete-modal');
+            const confirmBtn = document.getElementById('confirm-delete-btn');
+            
+            confirmBtn.onclick = () => handleDeleteItem(id);
+            deleteModal.classList.remove('hidden');
+        }
+
+        function hideDeleteModal() {
+            document.getElementById('delete-modal').classList.add('hidden');
+        }
+
+        async function handleDeleteItem(id) {
+            hideDeleteModal();
+            try {
+                await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/itinerary_items`, id));
+            } catch (error) {
+                console.error("Error deleting item:", error);
+            }
+        }
+
+
+        // --- Cost Modal Functions (CRUD for nested Costs) ---
+        
+        const costModal = document.getElementById('cost-modal');
+
+        async function saveCostsToItem(itemId, costsArray) {
+            if (!db || !userId) return;
+            try {
+                const itemRef = doc(db, `artifacts/${appId}/users/${userId}/itinerary_items`, itemId);
+                await updateDoc(itemRef, { costs: costsArray, updated_at: serverTimestamp() });
+            } catch (error) {
+                console.error("Error saving costs:", error);
+            }
+        }
+
+        function showCostModal(itemId) {
+            currentCostEditingId = itemId;
+            const item = state.itinerary.find(i => i.id === itemId);
+            if (!item) return;
+
+            document.getElementById('cost-modal-title').textContent = `花費明細： ${item.attraction}`;
+            renderCostList(item.costs || []);
+            costModal.classList.remove('hidden');
+        }
+
+        function hideCostModal() {
+            costModal.classList.add('hidden');
+            currentCostEditingId = null;
+            document.getElementById('new-cost-description').value = '';
+            document.getElementById('new-cost-amount').value = '';
+            document.getElementById('new-cost-category').value = '';
+        }
+
+        function renderCostList(costs) {
+            const list = document.getElementById('cost-list');
+            list.innerHTML = '';
+            
+            if (costs.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-4">目前沒有任何花費明細。</p>`;
+                return;
+            }
+
+            const modalTotal = costs.reduce((sum, cost) => sum + (cost.amount || 0), 0);
+            document.getElementById('cost-modal-total').textContent = `總計: ¥${modalTotal.toLocaleString()}`;
+
+
+            costs.forEach((cost, index) => {
+                const listItem = document.createElement('div');
+                listItem.className = 'flex justify-between items-center p-3 mb-3 sketchy-card';
+                listItem.innerHTML = `
+                    <div class="flex-grow space-y-1">
+                        <p class="font-bold text-gray-800">${cost.description}</p>
+                        <p class="text-xs text-gray-500 italic">${cost.category}</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <span class="text-xl font-mono text-green-700 whitespace-nowrap">¥${cost.amount.toLocaleString()}</span>
+                        <button class="text-red-500 hover:text-red-700 delete-cost-btn flex-shrink-0" data-index="${index}">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                list.appendChild(listItem);
+            });
+
+            document.querySelectorAll('.delete-cost-btn').forEach(btn => {
+                btn.onclick = () => handleCostDeletion(btn.dataset.index);
+            });
+        }
+
+        async function handleNewCost(event) {
+            event.preventDefault();
+
+            const description = document.getElementById('new-cost-description').value.trim();
+            const amountInput = document.getElementById('new-cost-amount');
+            const amount = Math.round(parseFloat(amountInput.value)); 
+            const category = document.getElementById('new-cost-category').value.trim() || "其他";
+
+            if (!description || isNaN(amount) || amount <= 0) {
+                 document.getElementById('cost-message-text').textContent = '請輸入有效描述與金額。';
+                 document.getElementById('cost-message-box').classList.remove('hidden');
+                 setTimeout(() => { document.getElementById('cost-message-box').classList.add('hidden'); }, 3000);
+                return;
+            }
+
+            const item = state.itinerary.find(i => i.id === currentCostEditingId);
+            if (!item) return;
+
+            const newCost = {
+                id: crypto.randomUUID(), 
+                description,
+                amount: amount, 
+                category,
+            };
+            
+            const updatedCosts = Array.isArray(item.costs) ? [...item.costs, newCost] : [newCost];
+            
+            document.getElementById('new-cost-description').value = '';
+            amountInput.value = '';
+            document.getElementById('new-cost-category').value = '';
+
+            await saveCostsToItem(currentCostEditingId, updatedCosts);
+        }
+
+        async function handleCostDeletion(index) {
+            const item = state.itinerary.find(i => i.id === currentCostEditingId);
+            if (!item || !Array.isArray(item.costs)) return;
+
+            const updatedCosts = item.costs.filter((_, i) => i != index);
+
+            await saveCostsToItem(currentCostEditingId, updatedCosts);
+            
+            renderCostList(updatedCosts);
+        }
+
+        // --- Firebase Data Listener & Seeding ---
+
+        function setupItineraryListener() {
+            if (!db || !userId) return;
+
+            const q = collection(db, `artifacts/${appId}/users/${userId}/itinerary_items`);
+            
+            onSnapshot(q, (snapshot) => {
+                const updatedItinerary = snapshot.docs.map(mapFirestoreData);
+
+                state.itinerary = updatedItinerary;
+                
+                const maxDay = Math.max(1, ...state.itinerary.map(item => item.day));
+                
+                // 確保 currentDay 在合理的範圍內 (如果沒有行程，currentDay 還是 1)
+                if (state.itinerary.length === 0) {
+                    state.currentDay = 1;
+                } else if (state.currentDay > maxDay) {
+                    state.currentDay = maxDay;
+                }
+
+                renderTabs(maxDay);
+                renderItinerary();
+                
+                if (currentCostEditingId) {
+                    const currentItem = state.itinerary.find(i => i.id === currentCostEditingId);
+                    if (currentItem) {
+                        renderCostList(currentItem.costs || []);
+                    } else {
+                        hideCostModal(); 
+                    }
+                }
+            }, (error) => {
+                console.error("Error getting itinerary data:", error);
+            });
+        }
+
+        async function seedInitialData() {
+            try {
+                const itemsCol = collection(db, `artifacts/${appId}/users/${userId}/itinerary_items`);
+                const snapshot = await getDocs(itemsCol);
+
+                if (snapshot.empty && INITIAL_ITINERARY_DATA.length > 0) {
+                    for (const item of INITIAL_ITINERARY_DATA) {
+                        await addDoc(itemsCol, {
+                            ...item,
+                            costs: [],
+                            created_at: serverTimestamp() 
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error("Error seeding initial data:", error);
+            }
+        }
+
+
+        // --- Main App Setup ---
+
+        async function initApp() {
+            try {
+                // Added setLogLevel for debugging authentication issues
+                setLogLevel('debug'); 
+
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Optimized sign-in logic with try/catch for better network error tolerance
+                if (initialAuthToken) {
+                    try {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Signed in with custom token.");
+                    } catch (error) {
+                        console.error("Custom token sign-in failed due to network or invalid token, falling back to anonymous.", error);
+                        // Proceed to try anonymous sign-in if custom token fails
+                        await signInAnonymously(auth).catch(e => console.error("Anonymous sign-in attempt failed.", e));
+                    }
+                } else {
+                    // Anonymous sign-in if no custom token is provided
+                    await signInAnonymously(auth).catch(e => console.error("Anonymous sign-in attempt failed.", e));
+                }
+
+                // Use onAuthStateChanged for the rest of the application setup logic
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id-display').textContent = `使用者ID: ${userId}`;
+                        
+                        const rateElement = document.getElementById('rate-display');
+                        rateElement.textContent = '匯率更新中...';
+                        state.jpyToTwdRate = await fetchExchangeRateWithRetry();
+                        rateElement.textContent = `1 ¥ ≈ ${state.jpyToTwdRate.toFixed(3)} NT$`;
+                        
+                        await seedInitialData();
+                        setupItineraryListener();
+                    } else {
+                        console.log("No user signed in.");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+            }
+        }
+
+        // Attach event listeners to initial buttons
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('add-item-btn').onclick = showAddModal;
+            document.getElementById('modal-close-btn').onclick = hideModal;
+            document.getElementById('modal-save-btn').onclick = handleSaveItem;
+            document.getElementById('delete-modal-cancel').onclick = hideDeleteModal;
+            
+            document.getElementById('cost-modal-close-btn').onclick = hideCostModal;
+            document.getElementById('new-cost-form').onsubmit = handleNewCost;
+            document.getElementById('currency-toggle-btn').onclick = toggleCurrency;
+            
+            // Attach listener for transport selection change (Feature 2)
+            transportSelect.addEventListener('change', (e) => toggleTransportDetails(e.target.value));
+            
+            initApp();
+        });
+    </script>
+</head>
+
+<body class="p-4 sm:p-8 flex flex-col items-center">
+
+    <!-- Header and User ID Display -->
+    <div class="w-full max-w-4xl mb-6">
+        <h1 class="text-4xl font-extrabold text-gray-800" style="font-family: 'Comfortaa', cursive; color: var(--primary-color);">
+            東京與河口湖八日行程規劃 (12/13 - 12/20)
+        </h1>
+        <p id="user-id-display" class="text-xs text-gray-500 mt-1"></p>
+    </div>
+
+    <!-- Total Cost Header Bar -->
+    <div class="w-full max-w-4xl bg-[var(--header-bg)] p-4 rounded-xl shadow-xl mb-6 flex justify-between items-center space-x-4">
+        <div class="flex flex-col">
+            <h2 class="text-lg font-semibold text-gray-100">行程總預算</h2>
+            <div id="total-cost-display-amount">
+                <span class="text-3xl font-extrabold text-white">¥0</span>
+                <span class="text-xs font-medium text-gray-200 ml-2">JPY</span>
+            </div>
+        </div>
+        
+        <div class="flex flex-col items-end">
+            <p id="rate-display" class="text-xs text-gray-300 mb-1">1 ¥ ≈ 0.22 NT$</p>
+            <button id="currency-toggle-btn"
+                    class="px-3 py-1 bg-white text-sm font-semibold rounded-full text-[var(--header-bg)] hover:bg-gray-100 transition-colors">
+                切換至 NT$
+            </button>
+        </div>
+    </div>
+
+    <!-- Day Tabs Navigation (Sticky at the top) -->
+    <div class="w-full max-w-4xl bg-white shadow-lg overflow-x-auto rounded-t-xl sticky top-0 z-10 border-b-2 border-gray-200">
+        <div id="day-tabs" class="flex space-x-2 p-2">
+            <!-- Tabs will be rendered here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Main Itinerary List -->
+    <main id="itinerary-list" class="w-full max-w-4xl p-4 sm:p-6 min-h-[500px] rounded-b-xl shadow-inner" style="background-color: #fefef5;">
+        <div class="text-center text-gray-400 p-10">載入行程中...</div>
+    </main>
+
+    <!-- Floating Add Button -->
+    <button id="add-item-btn" 
+            class="fixed bottom-6 right-6 w-16 h-16 rounded-full text-white text-3xl shadow-xl hover:shadow-2xl transition-all duration-200 z-30"
+            style="background-color: var(--day-active); border: 2px solid var(--primary-color); box-shadow: 4px 4px 0px 0px var(--primary-color);">
+        <i class="fa-solid fa-plus"></i>
+    </button>
+
+
+    <!-- --- Modal for Add/Edit Itinerary Item --- -->
+    <div id="item-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="modal-content">
+            <button id="modal-close-btn" class="absolute top-3 right-3 text-gray-500 hover:text-gray-900 text-2xl">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <h2 id="modal-title" class="text-2xl font-bold mb-4" style="color: var(--primary-color);">新增行程</h2>
+            
+            <form id="item-form">
+                <div class="mb-4">
+                    <label for="modal-attraction" class="block text-gray-700 font-semibold mb-1">景點名稱 (點擊名稱可開啟 Google 地圖)</label>
+                    <input type="text" id="modal-attraction" required
+                           class="w-full p-3 border-2 border-gray-400 rounded-lg focus:ring-4 focus:ring-yellow-300 focus:border-yellow-500 transition-all">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="modal-time" class="block text-gray-700 font-semibold mb-1">時間 (選填)</label>
+                        <input type="time" id="modal-time"
+                               class="w-full p-3 border-2 border-gray-400 rounded-lg focus:ring-4 focus:ring-yellow-300 focus:border-yellow-500 transition-all">
+                    </div>
+                    <div>
+                        <label for="modal-transport-select" class="block text-gray-700 font-semibold mb-1">交通工具 (選填)</label>
+                        <select id="modal-transport-select" 
+                                class="transport-select w-full p-2 border-gray-300 rounded focus:ring-yellow-500 focus:border-yellow-500">
+                            <!-- Options rendered by JS -->
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Transport Details Container (Feature 2) -->
+                <div id="transport-details-container" class="space-y-4 mb-4 hidden">
+                    <div class="border p-3 rounded-lg bg-gray-50">
+                        <label for="modal-departure" class="block text-gray-700 font-semibold mb-1 text-sm">出發位置 (非步行交通建議填寫)</label>
+                        <input type="text" id="modal-departure" placeholder="例如: 新宿車站"
+                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-300">
+                    </div>
+                    <div class="border p-3 rounded-lg bg-gray-50">
+                        <label for="modal-arrival" class="block text-gray-700 font-semibold mb-1 text-sm">抵達位置 (非步行交通建議填寫)</label>
+                        <input type="text" id="modal-arrival" placeholder="例如: 河口湖站"
+                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-300">
+                    </div>
+                </div>
+                
+                <div class="mb-6">
+                    <label for="modal-note" class="block text-gray-700 font-semibold mb-1">備註 (選填)</label>
+                    <textarea id="modal-note" rows="3"
+                              class="w-full p-3 border-2 border-gray-400 rounded-lg focus:ring-4 focus:ring-yellow-300 focus:border-yellow-500 transition-all"></textarea>
+                </div>
+                
+                <button type="submit" id="modal-save-btn" 
+                        class="w-full p-3 text-lg font-bold text-white rounded-lg shadow-md hover:opacity-90 transition-all"
+                        style="background-color: var(--day-active);">
+                    儲存
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- --- Custom Message Box for Mandatory Field Alert (General) --- -->
+    <div id="custom-message-box" class="hidden fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white p-4 rounded-lg shadow-xl z-[60]" role="alert">
+        <p id="custom-message-text" class="font-semibold"></p>
+    </div>
+
+    <!-- --- Custom Message Box for Cost Modal Alert --- -->
+    <div id="cost-message-box" class="hidden fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white p-4 rounded-lg shadow-xl z-[60]" role="alert">
+        <p id="cost-message-text" class="font-semibold"></p>
+    </div>
+
+    <!-- --- Delete Confirmation Modal --- -->
+    <div id="delete-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="modal-content text-center" style="border: 3px dashed #ef4444;">
+            <i class="fa-solid fa-triangle-exclamation text-5xl text-red-500 mb-4"></i>
+            <h2 class="text-xl font-bold mb-4" style="color: #ef4444;">確認刪除？</h2>
+            <p class="text-gray-700 mb-6">您確定要刪除此行程嗎？此操作無法復原。</p>
+            <div class="flex justify-center space-x-4">
+                <button id="delete-modal-cancel" class="p-2 w-24 border-2 border-gray-400 rounded-lg text-gray-700 hover:bg-gray-100 transition-all">取消</button>
+                <button id="confirm-delete-btn" class="p-2 w-24 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all">確認刪除</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- --- Cost Management Modal (NEW) --- -->
+    <div id="cost-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="modal-content cost-modal-content">
+            <button id="cost-modal-close-btn" class="absolute top-3 right-3 text-gray-500 hover:text-gray-900 text-2xl">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <h2 id="cost-modal-title" class="text-2xl font-bold mb-4" style="color: var(--primary-color);">花費明細</h2>
+            
+            <!-- Cost List -->
+            <div id="cost-list" class="max-h-64 overflow-y-auto mb-4 border p-2 rounded-lg bg-gray-50">
+                <!-- Cost items rendered here by JS -->
+            </div>
+            
+            <!-- Cost Total -->
+            <div class="text-right text-xl font-bold text-gray-800 mb-6 border-t pt-2" style="border-color: var(--header-bg);">
+                <span id="cost-modal-total">總計: ¥0</span>
+            </div>
+
+            <!-- Add New Cost Form -->
+            <h3 class="text-xl font-bold mb-3" style="color: var(--header-bg);"><i class="fa-solid fa-plus-circle mr-2"></i> 新增單筆花費 (請填日圓 ¥)</h3>
+            <form id="new-cost-form" class="space-y-3 p-4 border rounded-lg border-dashed" style="border-color: var(--header-bg);">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="new-cost-amount" class="block text-gray-700 font-semibold text-sm mb-1">金額 (日圓 ¥)</label>
+                        <input type="number" id="new-cost-amount" required min="1" step="1" placeholder="例如: 1500"
+                               class="w-full p-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-green-300">
+                    </div>
+                    <div>
+                        <label for="new-cost-category" class="block text-gray-700 font-semibold text-sm mb-1">分類 (選填)</label>
+                        <input type="text" id="new-cost-category" placeholder="例如: 交通/餐費/門票"
+                               class="w-full p-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-green-300">
+                    </div>
+                </div>
+                <div>
+                    <label for="new-cost-description" class="block text-gray-700 font-semibold text-sm mb-1">描述 (必填)</label>
+                    <input type="text" id="new-cost-description" required placeholder="例如: 迪士尼門票"
+                           class="w-full p-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-green-300">
+                </div>
+                
+                <button type="submit" 
+                        class="w-full p-2 text-md font-bold text-white rounded-lg shadow-md hover:opacity-90 transition-all"
+                        style="background-color: var(--header-bg);">
+                    <i class="fa-solid fa-check-circle mr-2"></i> 記錄花費
+                </button>
+            </form>
+        </div>
+    </div>
+
+</body>
+</html>
